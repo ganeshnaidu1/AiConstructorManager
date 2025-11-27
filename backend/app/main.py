@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
-from di_client import analyze_invoice
+from .di_client import analyze_invoice
 
 load_dotenv()
 
@@ -41,7 +41,10 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
     parsed_path = STORAGE_DIR / "parsed"
     parsed_path.mkdir(parents=True, exist_ok=True)
     with open(parsed_path / f"{bill_id}.json", "w") as f:
-        json.dump(parsed, f, indent=2)
+        # Some fields returned by Document Intelligence may be date/datetime objects
+        # which are not JSON serializable by default. Use `default=str` to
+        # convert such objects to ISO strings when saving parsed output.
+        json.dump(parsed, f, indent=2, default=str)
 
     # In production: insert DB entry, push event to Event Grid
     return JSONResponse({"bill_id": bill_id, "status": "uploaded"})
