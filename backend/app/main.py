@@ -1,11 +1,13 @@
 import os
 import uuid
 import json
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from .di_client import analyze_invoice
+from .budget_tracker import BudgetTracker, Budget
 
 load_dotenv()
 
@@ -15,6 +17,9 @@ BILLS_DIR = STORAGE_DIR / "bills"
 BILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Construction Bill Verification - Prototype")
+
+# Initialize system modules
+budget_tracker = BudgetTracker()
 
 @app.get("/health")
 async def health():
@@ -50,12 +55,13 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
     return JSONResponse({"bill_id": bill_id, "status": "uploaded"})
 
 @app.get("/get_bill_result/{bill_id}")
-async def get_bill_result(bill_id: str):
+async def get_bill_result(bill_id: str, project_id: str = "default-project"):
     parsed_path = STORAGE_DIR / "parsed" / f"{bill_id}.json"
     if not parsed_path.exists():
         raise HTTPException(status_code=404, detail="Bill not found")
     with open(parsed_path) as f:
         parsed = json.load(f)
+    
     # Perform arithmetic validations: per-line multiplication and sum of lines
     def _to_number(v):
         if v is None:
@@ -203,6 +209,7 @@ async def get_bill_result(bill_id: str):
 
     result = {
         "bill_id": bill_id,
+        "project_id": project_id,
         "parsed": parsed,
         "validations": validations,
         "fraud_score": fraud_score,
@@ -219,3 +226,67 @@ async def validate_gstin_endpoint(gstin: str, vendor_name: str | None = None):
         "vendor_name": vendor_name,
         "validation_result": result
     }
+
+# Budget Tracking Endpoints
+
+@app.post("/budget/create")
+async def create_budget(budget_data: dict):
+    """Create a new project budget."""
+    try:
+        budget_id = budget_tracker.create_project_budget(
+            project_name=budget_data["project_name"],
+            project_id=budget_data["project_id"],
+            total_budget=budget_data["total_budget"],
+            start_date=budget_data.get("start_date"),
+            end_date=budget_data.get("end_date"),
+            categories=budget_data.get("categories")
+        )
+        return {"budget_id": budget_id, "status": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/budget/{project_id}")
+async def get_budget(project_id: str):
+    """Get budget details for a project."""
+    budget = budget_tracker.get_project_budget(project_id)
+    if not budget:
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return budget
+
+@app.post("/budget/{project_id}/expense")
+async def add_expense(project_id: str, expense_data: dict):
+    """Add an expense to a project budget."""
+    try:
+        success = budget_tracker.add_expense(
+            project_id=project_id,
+            category=expense_data["category"],
+            amount=expense_data["amount"],
+            description=expense_data.get("description", ""),
+            vendor=expense_data.get("vendor", "")
+        )
+        if success:
+            return {"status": "expense_added"}
+        else:
+            raise HTTPException(status_code=404, detail="Budget not found")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/budget/{project_id}/summary")
+async def get_budget_summary(project_id: str):
+    """Get budget summary and alerts."""
+    summary = budget_tracker.get_project_summary(project_id)
+    if not summary:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return summary
+
+@app.get("/budget/{project_id}/alerts")
+async def get_budget_alerts(project_id: str):
+    """Get budget alerts for a project."""
+    alerts = budget_tracker.get_alerts(project_id)
+    return {"project_id": project_id, "alerts": alerts}
+
+@app.get("/budget/summary/all")
+async def get_all_budgets_summary():
+    """Get summary of all project budgets."""
+    summary = budget_tracker.get_all_projects_summary()
+    return summary
