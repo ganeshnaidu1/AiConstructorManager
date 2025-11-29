@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Constructor Manager</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand">🏗️ Constructor Manager</div>
+            <div class="nav-links">
+                <button id="ownerTab" class="nav-btn active">Owner</button>
+                <button id="engineerTab" class="nav-btn">Site Engineer</button>
+            </div>
+        </nav>
+
+        <!-- Owner Dashboard -->
+        <div id="ownerView" class="view active">
+            <div class="container">
+                <h2>Owner Dashboard</h2>
+                
+                <!-- Project Setup -->
+                <div class="card">
+                    <h3>📋 Create New Project</h3>
+                    <form id="projectForm" class="form">
+                        <div class="form-group">
+                            <label>Project Name</label>
+                            <input type="text" id="projectName" placeholder="Enter project name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Total Budget (₹)</label>
+                            <input type="number" id="projectBudget" placeholder="Enter total budget" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Create Project</button>
+                    </form>
+                </div>
+
+                <!-- Project List -->
+                <div class="card">
+                    <h3>🎯 Active Projects</h3>
+                    <div id="projectsList" class="projects-grid">
+                        <!-- Projects will be loaded here -->
+                    </div>
+                </div>
+
+                <!-- Bills Review -->
+                <div class="card">
+                    <h3>📄 Bills Pending Review</h3>
+                    <div class="project-selector">
+                        <select id="projectSelect">
+                            <option value="">Select Project</option>
+                        </select>
+                        <button id="loadBills" class="btn btn-secondary">Load Bills</button>
+                    </div>
+                    <div id="billsList" class="bills-container">
+                        <!-- Bills will be loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Site Engineer View -->
+        <div id="engineerView" class="view">
+            <div class="container">
+                <h2>Site Engineer - Upload Bills</h2>
+                
+                <div class="card">
+                    <h3>📤 Upload Bill</h3>
+                    <form id="billUploadForm" class="form">
+                        <div class="form-group">
+                            <label>Select Project</label>
+                            <select id="engineerProjectSelect" required>
+                                <option value="">Select Project</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Vendor/Tenant Name</label>
+                            <input type="text" id="vendorName" placeholder="Enter vendor name" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Upload Bill (PDF only)</label>
+                            <input type="file" id="billFile" accept=".pdf" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Upload Bill</button>
+                    </form>
+                    
+                    <div id="uploadStatus" class="upload-status"></div>
+                </div>
+
+                <!-- Recent Uploads -->
+                <div class="card">
+                    <h3>📋 Recent Uploads</h3>
+                    <div id="recentUploads" class="uploads-list">
+                        <!-- Recent uploads will be shown here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loader"></div>
+        <p>Processing...</p>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
