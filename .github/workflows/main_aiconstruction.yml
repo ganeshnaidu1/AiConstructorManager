@@ -12,25 +12,23 @@ jobs:
     permissions:
       contents: read
 
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+      uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      # Install dependencies from ROOT
+      - name: Install backend dependencies
+        run: |
+          pip install -r requirements.txt
 
+      # Zip ONLY the backend folder for deployment
       - name: Zip backend folder
         run: |
-          cd ..
           zip -r backend.zip backend
 
       - name: Upload artifact
@@ -62,7 +60,7 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6CF628C51CDC437988CBF0D67E684EC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_67D3F163AA98458BAF8D18B71B37AD46 }}
 
-      - name: Deploy to Azure
+      - name: Deploy Backend to Azure
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'AiConstruction'
