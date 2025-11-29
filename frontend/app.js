@@ -409,8 +409,18 @@ async function handleBillUpload(e) {
 function showUploadSuccess(result) {
     const uploadStatus = document.getElementById('uploadStatus');
     uploadStatus.className = 'upload-status success';
+    
+    let duplicateWarning = '';
+    if (result.duplicate_detected) {
+        duplicateWarning = `
+        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 0.5rem; margin: 0.5rem 0; border-radius: 5px; color: #856404;">
+            ⚠️ <strong>Duplicate Detected:</strong> This file was already uploaded before!
+        </div>`;
+    }
+    
     uploadStatus.innerHTML = `
         <h4>✅ Upload Successful!</h4>
+        ${duplicateWarning}
         <p><strong>Bill ID:</strong> ${result.bill_id}</p>
         <p><strong>Vendor:</strong> ${result.vendor}</p>
         <p><strong>Amount:</strong> ₹${(result.amount || 0).toLocaleString()}</p>

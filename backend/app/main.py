@@ -6,9 +6,10 @@ Simplified version with only essential endpoints for project management and bill
 import os
 import uuid
 import json
+import hashlib
 from datetime import datetime
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -21,8 +22,12 @@ from .fraud_detector import detect_bill_fraud
 # Add parent directory to path for DB imports
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from DB.SQLiteConnection import db
+from backend.app.fraud_detector import FraudDetector
 
 load_dotenv()
+
+# Initialize fraud detector
+fraud_detector = FraudDetector()
 
 # Directory setup
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -53,6 +58,48 @@ app.add_middleware(
 async def health_check():
     """Simple health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+@app.get("/test/gstin/{gstin}")
+async def test_gstin_validation(gstin: str):
+    """Test GSTIN validation endpoint."""
+    # Create comprehensive mock parsed data with the GSTIN
+    mock_parsed_data = {
+        "vendor_gstin": gstin if gstin != "EMPTY" else "",
+        "vendor": "Test Vendor",
+        "total_amount": 1000.0,
+        "invoice_id": "TEST001",
+        "invoice_date": "2025-11-29",
+        "line_items": [
+            {"item": "Construction Material", "qty": 10, "rate": 100, "total": 1000}
+        ],
+        "taxes": 180.0
+    }
+    
+    # Test with fraud detector
+    bill_data = {
+        "bill_id": "test-bill",
+        "vendor_name": "Test Vendor",
+        "total_amount": 1000.0,
+        "tenant_id": "test",
+        "project_id": "test"
+    }
+    
+    fraud_result = fraud_detector.detect_fraud(bill_data, mock_parsed_data)
+    
+    return {
+        "gstin": gstin,
+        "gstin_format_valid": len(gstin) == 15 and gstin != "EMPTY",
+        "azure_di_extracted": {
+            "vendor_gstin": mock_parsed_data.get("vendor_gstin"),
+            "vendor": mock_parsed_data.get("vendor"),
+            "total_amount": mock_parsed_data.get("total_amount")
+        },
+        "fraud_analysis": {
+            "fraud_score": fraud_result.get("fraud_score", 0.0),
+            "fraud_reasons": fraud_result.get("explanation", ""),
+            "recommendation": fraud_result.get("recommendation", "unknown")
+        }
+    }
 
 # ============================================================================
 # PROJECT MANAGEMENT
@@ -137,7 +184,7 @@ async def list_projects():
 # ============================================================================
 
 @app.post("/upload_bill")
-async def upload_bill(file: UploadFile = File(...), tenant: str = "default", project: str = "proj"):
+async def upload_bill(file: UploadFile = File(...), tenant: str = Query(...), project: str = Query(...)):
     """Upload and process a bill PDF."""
     
     # Validate file type
@@ -152,8 +199,26 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
     # Save uploaded file
     try:
         content = await file.read()
+        
+        # Check for duplicates based on content hash
+        file_hash = hashlib.md5(content).hexdigest()
+        
+        # Check if this file hash already exists in the database
+        duplicate_detected = False
+        duplicate_bill_id = None
+        if db:
+            existing_bills = db.get_all_bills()
+            for bill in existing_bills:
+                if bill.get('file_hash') == file_hash and bill.get('project_id') == project:
+                    duplicate_detected = True
+                    duplicate_bill_id = bill.get('bill_id')
+                    print(f"⚠️ Duplicate file detected! Original bill: {duplicate_bill_id}")
+                    break
+        
         with open(file_path, "wb") as f:
             f.write(content)
+    except HTTPException:
+        raise  # Re-raise HTTPException
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
     
@@ -182,8 +247,26 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
         total_amount = 0.0
     
     # Run fraud detection
-    fraud_score = 0.0
-    fraud_reasons = ""
+    bill_data = {
+        "bill_id": bill_id,
+        "vendor_name": vendor_name,
+        "total_amount": total_amount,
+        "tenant_id": tenant,
+        "project_id": project,
+        "is_duplicate": duplicate_detected,
+        "duplicate_of": duplicate_bill_id
+    }
+    fraud_result = fraud_detector.detect_fraud(bill_data, parsed)
+    fraud_score = fraud_result.get("fraud_score", 0.0)
+    fraud_reasons = fraud_result.get("explanation", "")
+    
+    # Add duplicate detection to fraud score
+    if duplicate_detected:
+        fraud_score += 30.0  # Add 30 points for duplicate
+        if fraud_reasons:
+            fraud_reasons += f" | DUPLICATE: Same file already uploaded as Bill {duplicate_bill_id}"
+        else:
+            fraud_reasons = f"DUPLICATE: Same file already uploaded as Bill {duplicate_bill_id}"
     
     if db:
         # Store in database
@@ -194,26 +277,17 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
             vendor_name=vendor_name,
             total_amount=total_amount,
             fraud_score=fraud_score,
-            status="uploaded"
+            status="uploaded",
+            file_hash=file_hash
         )
         
         # Store line items if available
         line_items = parsed.get("line_items") or []
         if line_items and success:
             db.insert_line_items(bill_id, line_items)
-        
-        # Run fraud detection
-        bill_data = {
-            "bill_id": bill_id,
-            "vendor_name": vendor_name,
-            "total_amount": total_amount,
-        }
-        fraud_result = detect_bill_fraud(bill_data, parsed, db)
-        fraud_score = fraud_result.get("fraud_score", 0)
-        fraud_reasons = "; ".join(fraud_result.get("reasons", []))
-        
-        # Update fraud score
-        if fraud_score > 0:
+            
+        # Update fraud score and reasons
+        if success:
             db.update_bill_fraud_score(bill_id, fraud_score, fraud_reasons)
     
     return {
@@ -222,6 +296,8 @@ async def upload_bill(file: UploadFile = File(...), tenant: str = "default", pro
         "vendor": vendor_name,
         "amount": total_amount,
         "fraud_score": fraud_score,
+        "fraud_reasons": fraud_reasons,
+        "duplicate_detected": duplicate_detected,
         "tenant": tenant,
         "project": project
     }
@@ -258,24 +334,41 @@ async def list_all_bills():
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 @app.get("/get_bill_result/{bill_id}")
-async def get_bill_analysis(bill_id: str, project_id: str = "default-project"):
-    """Get detailed analysis for a bill."""
-    parsed_path = STORAGE_DIR / "parsed" / f"{bill_id}.json"
+async def get_bill_analysis(bill_id: str):
+    """Get detailed analysis for a bill including fraud detection results."""
     
+    # Get bill data from database
+    if not db:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+    
+    bill_data = db.get_bill(bill_id)
+    if not bill_data:
+        raise HTTPException(status_code=404, detail="Bill not found in database")
+    
+    # Get parsed data from file
+    parsed_path = STORAGE_DIR / "parsed" / f"{bill_id}.json"
     if not parsed_path.exists():
-        raise HTTPException(status_code=404, detail="Bill not found")
+        raise HTTPException(status_code=404, detail="Bill analysis not found")
     
     with open(parsed_path) as f:
         parsed = json.load(f)
     
-    # Perform validations (arithmetic checks, GSTIN validation, etc.)
-    # ... (keeping the existing validation logic)
+    # Run fraud detection to get fresh validation results
+    fraud_result = detect_bill_fraud(bill_data, parsed, db)
     
     return {
         "bill_id": bill_id,
-        "project_id": project_id,
-        "parsed": parsed,
-        "status": "analysed"
+        "vendor_name": bill_data.get("vendor_name"),
+        "total_amount": bill_data.get("total_amount"),
+        "fraud_score": fraud_result.get("fraud_score", 0),
+        "fraud_explanation": "; ".join(fraud_result.get("reasons", [])),
+        "is_suspicious": fraud_result.get("is_suspicious", False),
+        "recommendation": fraud_result.get("recommendation", "review"),
+        "validations": fraud_result.get("validations", {}),
+        "status": bill_data.get("status", "unknown"),
+        "project_id": bill_data.get("project_id"),
+        "line_items": parsed.get("line_items", []),
+        "parsed_data": parsed
     }
 
 # ============================================================================

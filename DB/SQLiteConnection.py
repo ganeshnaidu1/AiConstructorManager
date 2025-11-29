@@ -56,6 +56,7 @@ class SQLiteDatabaseConnection:
                     total_amount REAL DEFAULT 0,
                     fraud_score REAL DEFAULT 0,
                     status TEXT DEFAULT 'uploaded',
+                    file_hash TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     fraud_reasons TEXT DEFAULT '',
@@ -76,6 +77,19 @@ class SQLiteDatabaseConnection:
                     FOREIGN KEY (bill_id) REFERENCES bills (bill_id)
                 )
             """)
+            
+            conn.commit()
+            
+            # Add new columns to existing database if they don't exist
+            try:
+                cursor.execute("ALTER TABLE bills ADD COLUMN file_hash TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+                
+            try:
+                cursor.execute("ALTER TABLE bills ADD COLUMN fraud_reasons TEXT DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             
             conn.commit()
     
@@ -151,15 +165,15 @@ class SQLiteDatabaseConnection:
     
     def insert_bill(self, bill_id: str, tenant_id: str, project_id: str,
                    vendor_name: str, total_amount: float, 
-                   fraud_score: float, status: str = "uploaded") -> bool:
+                   fraud_score: float, status: str = "uploaded", file_hash: str = None) -> bool:
         """Insert a bill record into the database."""
         query = """
-            INSERT INTO bills (bill_id, tenant_id, project_id, vendor_name, total_amount, fraud_score, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO bills (bill_id, tenant_id, project_id, vendor_name, total_amount, fraud_score, status, file_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         try:
             with self.get_cursor() as cursor:
-                cursor.execute(query, (bill_id, tenant_id, project_id, vendor_name, total_amount, fraud_score, status))
+                cursor.execute(query, (bill_id, tenant_id, project_id, vendor_name, total_amount, fraud_score, status, file_hash))
             return True
         except sqlite3.Error as e:
             print(f"Error inserting bill: {e}")

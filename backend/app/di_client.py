@@ -43,6 +43,35 @@ def analyze_invoice(pdf_path: str) -> Dict[str, Any]:
             parsed["invoice_date"] = safe("InvoiceDate")
             parsed["total_amount"] = safe("InvoiceTotal") or safe("AmountDue")
             parsed["taxes"] = safe("TotalTax")
+            
+            # Extract GSTIN and tax information
+            parsed["vendor_gstin"] = safe("VendorTaxId") or safe("SellerTaxId") or safe("GSTIN")
+            parsed["customer_gstin"] = safe("CustomerTaxId") or safe("BuyerTaxId")
+            parsed["tax_details"] = safe("TaxDetails")
+            
+            # Try to extract GSTIN from vendor address or additional fields
+            vendor_addr = safe("VendorAddress") or safe("SellerAddress")
+            if vendor_addr and not parsed["vendor_gstin"]:
+                # Try to extract GSTIN pattern from address string
+                gstin_pattern = r'[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}'
+                if isinstance(vendor_addr, str):
+                    import re
+                    gstin_match = re.search(gstin_pattern, vendor_addr.replace(" ", ""))
+                    if gstin_match:
+                        parsed["vendor_gstin"] = gstin_match.group()
+            
+            # Also try to find GSTIN in any field that might contain it
+            if not parsed["vendor_gstin"]:
+                for field_name, field_obj in fields.items():
+                    if field_obj and field_obj.value:
+                        field_value = str(field_obj.value)
+                        if any(keyword in field_name.lower() for keyword in ['gstin', 'gst', 'tax']):
+                            import re
+                            gstin_pattern = r'[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}'
+                            gstin_match = re.search(gstin_pattern, field_value.replace(" ", ""))
+                            if gstin_match:
+                                parsed["vendor_gstin"] = gstin_match.group()
+                                break
 
             # items: try to extract table
             items = []
