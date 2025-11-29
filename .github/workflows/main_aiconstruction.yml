@@ -21,11 +21,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Requirements.txt is in ROOT
-      - name: Install backend dependencies
+      - name: Install dependencies (root requirements.txt)
         run: pip install -r requirements.txt
 
-      # Zip ONLY the backend folder
       - name: Zip backend folder
         run: zip -r backend.zip backend
 
@@ -51,6 +49,12 @@ jobs:
       - name: Unzip artifact
         run: unzip backend.zip
 
+      # ⭐ CRITICAL: Move backend contents into wwwroot
+      - name: Rearrange Backend Files for Azure
+        run: |
+          rm backend.zip
+          mv backend/* .
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -58,9 +62,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6CF628C51CDC437988CBF0D67E684EC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_67D3F163AA98458BAF8D18B71B37AD46 }}
 
-      - name: Deploy FastAPI Backend to Azure
+      - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
-          app-name: AiConstruction
-          slot-name: Production
-          package: ./backend
+          app-name: 'AiConstruction'
+          slot-name: 'Production'
+          package: .
