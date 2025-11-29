@@ -2,7 +2,7 @@ name: Deploy FastAPI Backend (AiConstruction)
 
 on:
   push:
-    branches: 
+    branches:
       - main
   workflow_dispatch:
 
@@ -14,22 +14,20 @@ jobs:
 
     steps:
       - name: Checkout code
-      uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # Install dependencies from ROOT
+      # Requirements.txt is in ROOT
       - name: Install backend dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
-      # Zip ONLY the backend folder for deployment
+      # Zip ONLY the backend folder
       - name: Zip backend folder
-        run: |
-          zip -r backend.zip backend
+        run: zip -r backend.zip backend
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -60,9 +58,9 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_6CF628C51CDC437988CBF0D67E684EC5 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_67D3F163AA98458BAF8D18B71B37AD46 }}
 
-      - name: Deploy Backend to Azure
+      - name: Deploy FastAPI Backend to Azure
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'AiConstruction'
-          slot-name: 'Production'
-          package: './backend'
+          app-name: AiConstruction
+          slot-name: Production
+          package: ./backend
