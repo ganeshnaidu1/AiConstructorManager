@@ -1,4 +1,4 @@
-name: Deploy FastAPI Backend (AiConstruction)
+name: Deploy AI Constructor Manager
 
 on:
   push:
@@ -7,10 +7,14 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
+    environment:
+      name: 'Production'
+      url: ${{ steps.deploy-to-webapp.outputs.webapp-url }}
 
     steps:
       - name: Checkout code
@@ -21,39 +25,63 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies (root requirements.txt)
-        run: pip install -r requirements.txt
-
-      - name: Zip backend folder
-        run: zip -r backend.zip backend
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-package
-          path: backend.zip
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      id-token: write
-      contents: read
-
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: backend-package
-
-      - name: Unzip artifact
-        run: unzip backend.zip
-
-      # ⭐ CRITICAL: Move backend contents into wwwroot
-      - name: Rearrange Backend Files for Azure
+      - name: Install dependencies and build package
         run: |
-          rm backend.zip
-          mv backend/* .
+          # Install Python dependencies
+          pip install -r requirements.txt
+          
+          # Create wwwroot directory for Azure App Service
+          mkdir -p wwwroot
+          
+          # Copy backend files to root (FastAPI needs to be at root level)
+          cp -r backend/* .
+          
+          # Copy frontend files to wwwroot for static serving
+          cp -r frontend/* wwwroot/
+          
+          # Update frontend API configuration for production
+          sed -i "s|const API_BASE = 'http://localhost:8000'|const API_BASE = window.location.origin|g" wwwroot/app.js
+          
+          # Create startup script for Azure
+          cat > startup.sh << 'EOF'
+          #!/bin/bash
+          cd /home/site/wwwroot
+          python -m gunicorn app.main:app --bind 0.0.0.0:8000 --worker-class uvicorn.workers.UvicornWorker
+          EOF
+          chmod +x startup.sh
+          
+          # Create web.config for static file serving
+          cat > web.config << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <system.webServer>
+              <handlers>
+                <add name="PythonHandler" path="*" verb="*" modules="FastCgiModule" scriptProcessor="D:\home\Python311\python.exe|D:\home\site\wwwroot\app\main.py" resourceType="Unspecified" requireAccess="Script"/>
+              </handlers>
+              <staticContent>
+                <mimeMap fileExtension=".js" mimeType="application/javascript" />
+                <mimeMap fileExtension=".css" mimeType="text/css" />
+                <mimeMap fileExtension=".json" mimeType="application/json" />
+              </staticContent>
+              <rewrite>
+                <rules>
+                  <rule name="API Routes" stopProcessing="true">
+                    <match url="^api/.*|^health|^projects|^bills.*|^upload_.*|^bill/.*" />
+                    <action type="None" />
+                  </rule>
+                  <rule name="Static Files" stopProcessing="true">
+                    <match url=".*\.(js|css|html|png|jpg|gif|ico)$" />
+                    <action type="Rewrite" url="wwwroot/{R:0}" />
+                  </rule>
+                  <rule name="Frontend Routes" stopProcessing="true">
+                    <match url=".*" />
+                    <action type="Rewrite" url="wwwroot/index.html" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+          EOF
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -63,6 +91,7 @@ jobs:
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_67D3F163AA98458BAF8D18B71B37AD46 }}
 
       - name: Deploy to Azure Web App
+        id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'AiConstruction'
